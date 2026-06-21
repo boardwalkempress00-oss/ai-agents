@@ -76,7 +76,7 @@ A multi-agent research pipeline that searches the web, drafts articles, and expo
 - Python 3.12+ (see `.python-version`)
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - OpenAI API access (configured through AgentSpan)
-- AgentSpan server running locally (default: `http://localhost:6767/api`)
+- AgentSpan server — local dev (`agentspan server start`) or [Docker Compose + PostgreSQL](#production-deployment-with-postgresql--docker-compose)
 - Firecrawl API key (required for Agent 3)
 
 ## Setup
@@ -106,7 +106,9 @@ A multi-agent research pipeline that searches the web, drafts articles, and expo
    - `AGENTSPAN_SERVER_URL` — AgentSpan API base URL (default: `http://localhost:6767/api`)
    - `FIRECRAWL_API_KEY` — Firecrawl API key (Agent 3 only)
 
-4. Start the [AgentSpan server](https://www.agentspan.com/) if it is not already running (default API: `http://localhost:6767/api`).
+4. Start the AgentSpan server:
+   - **Dev:** [AgentSpan server](https://www.agentspan.com/) with SQLite (`agentspan server start`)
+   - **Production-style:** [Docker Compose + PostgreSQL](#production-deployment-with-postgresql--docker-compose)
 
 ## Run
 
@@ -139,6 +141,67 @@ When a refund is requested, the agent pauses and asks `Approve? (y/n):` before e
 
 For Agent 3, pick a mode at the prompt (`sequential`, `parallel`, `nested`, or `worker`), then enter a research topic. Reports are written to the `reports/` directory (created automatically, gitignored).
 
+## Production Deployment with PostgreSQL + Docker Compose
+
+For a production-style setup, run the AgentSpan server with **PostgreSQL 16** instead of the default SQLite dev server. PostgreSQL persists execution state across restarts and supports multiple Python workers connecting concurrently — the pattern used in real deployments.
+
+### Why PostgreSQL?
+
+| Dev (SQLite) | Production-style (PostgreSQL) |
+|--------------|-------------------------------|
+| Zero config, single process | Durable, ACID-compliant storage |
+| Fine for local experimentation | Survives server restarts |
+| | Safe for multiple workers |
+
+The compose stack lives in `deployment/docker-compose/` and is based on the [official AgentSpan deployment](https://github.com/agentspan-ai/agentspan/tree/main/deployment/docker-compose).
+
+### Start the stack
+
+```sh
+cd deployment/docker-compose
+cp .env.example .env
+```
+
+Edit `.env` and set:
+
+- `AGENTSPAN_MASTER_KEY` — run `openssl rand -base64 32`
+- `POSTGRES_PASSWORD` — change from the default
+- `OPENAI_API_KEY` — your OpenAI key
+
+Then start the services:
+
+```sh
+docker compose up -d
+```
+
+This starts:
+
+- **agentspan** — AgentSpan server on port **6767**
+- **postgres** — PostgreSQL 16 with a persistent Docker volume
+
+### Check the AgentSpan UI
+
+Open **http://localhost:6767** in your browser to view the execution dashboard.
+
+Verify health:
+
+```sh
+curl http://localhost:6767/actuator/health
+```
+
+See `deployment/docker-compose/README.md` for logs, stop/cleanup, and troubleshooting.
+
+### Run local Python workers against the stack
+
+From the repository root, point your agents at the running server:
+
+```sh
+export AGENTSPAN_SERVER_URL=http://localhost:6767
+uv run python agents/agent3.py
+```
+
+Worker secrets (`FIRECRAWL_API_KEY`, etc.) stay in the root `.env` — only server and database config go in `deployment/docker-compose/.env`.
+
 ## Troubleshooting
 
 | Problem | Likely cause | Fix |
@@ -154,11 +217,15 @@ For Agent 3, pick a mode at the prompt (`sequential`, `parallel`, `nested`, or `
 ```
 .
 ├── agents/
-│   ├── agent1.py      # Personal assistant CLI agent
-│   ├── agent2.py      # Customer support agent with guardrails and approval flow
-│   └── agent3.py      # Multi-agent research pipeline with Firecrawl tools
-├── .env.example       # Environment variable template (copy to .env)
-├── pyproject.toml     # Dependencies and project metadata
-├── uv.lock            # Locked dependency versions
+│   ├── agent1.py           # Personal assistant CLI agent
+│   ├── agent2.py           # Customer support agent with guardrails and approval flow
+│   ├── agent3.py           # Multi-agent research pipeline with Firecrawl tools
+│   ├── crash_resume_demo.py # Durable execution crash/resume demo
+│   └── test_agent2.py      # Mock tests for Agent 2
+├── deployment/
+│   └── docker-compose/     # AgentSpan server + PostgreSQL 16 stack
+├── .env.example            # Worker environment template (copy to .env)
+├── pyproject.toml          # Dependencies and project metadata
+├── uv.lock                 # Locked dependency versions
 └── README.md
 ```

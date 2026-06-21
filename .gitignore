@@ -5,7 +5,11 @@ build/
 dist/
 wheels/
 *.egg-info
+# Environment files (never commit secrets)
 .env
+.env.*
+!.env.example
+deployment/docker-compose/.env
 
 # Virtual environments
 .venv
