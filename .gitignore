@@ -9,3 +9,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated output (Agent 3)
+reports/

@@ -1,30 +1,42 @@
 """
 Personal Assistant Agent
 
-This script defines a concise personal assistant agent using the agentspan library.
-The agent is capable of responding to questions about the current local time, utilizing a registered tool function.
-Interaction is handled via the command line, with conversation memory preserved for context.
+Demonstrates AgentSpan patterns for a portfolio project:
+- Tool calling (current local time)
+- Conversation memory across multi-turn CLI sessions
 """
 
 import logging
 from datetime import datetime
+
 from dotenv import load_dotenv
 
-from agentspan.agents import (
-    Agent,
-    AgentRuntime,
-    ConversationMemory,
-    run,
-    tool,
+from agentspan.agents import Agent, AgentRuntime, ConversationMemory, run, tool
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+load_dotenv(override=True)
+logging.basicConfig(level=logging.WARNING, force=True)
+logging.disable(logging.INFO)
+
+AGENT_NAME = "personal_assistant"
+AGENT_MODEL = "openai/gpt-5"
+MAX_MEMORY_MESSAGES = 50
+EXIT_COMMAND = "q"
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+ASSISTANT_INSTRUCTIONS = (
+    "You are a concise personal assistant. "
+    "If the user asks what time it is, call get_current_time and answer using the tool result. "
+    "Do not say you need more context."
 )
 
-# Load environment variables from .env file for configuration
-load_dotenv()
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
 
-# Configure logging to minimize log noise; warnings or higher will be displayed
-logging.basicConfig(level=logging.WARNING)
-logging.getLogger("agentspan").setLevel(logging.WARNING)
-logging.getLogger("conductor").setLevel(logging.WARNING)
 
 @tool
 def get_current_time() -> str:
@@ -32,53 +44,64 @@ def get_current_time() -> str:
     Get the current local time.
 
     This tool should be called whenever the user asks what time it is.
+
     Returns:
-        str: The current local time formatted as 'YYYY-MM-DD HH:MM:SS'.
+        The current local time formatted as ``YYYY-MM-DD HH:MM:SS``.
     """
-    return f"The current local time is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    return f"The current local time is {datetime.now().strftime(DATETIME_FORMAT)}"
 
-# Initialize conversation memory with a limit of 50 messages
-conversation_memory = ConversationMemory(max_messages=50)
 
-# Instantiate the agent with specific instructions and tools
+# ---------------------------------------------------------------------------
+# Agent
+# ---------------------------------------------------------------------------
+
+conversation_memory = ConversationMemory(max_messages=MAX_MEMORY_MESSAGES)
+
 assistant = Agent(
-    name="personal_assistant",
-    model="openai/gpt-5",
-    instructions=(
-        "You are a concise personal assistant. "
-        "If the user asks what time it is, call get_current_time and answer using the tool result. "
-        "Do not say you need more context."
-    ),
+    name=AGENT_NAME,
+    model=AGENT_MODEL,
+    instructions=ASSISTANT_INSTRUCTIONS,
     tools=[get_current_time],
     memory=conversation_memory,
 )
 
-def main():
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+
+
+def run_turn(prompt: str, runtime: AgentRuntime) -> None:
     """
-    Entry point for running the personal assistant agent in an interactive CLI loop.
-    The user can enter queries, and the agent will respond accordingly.
-    Type 'q' to exit the session.
+    Run one assistant turn and print the result.
+
+    Args:
+        prompt: The user's message for this turn.
+        runtime: Active AgentSpan runtime for the session.
     """
+    result = run(assistant, prompt, runtime=runtime)
+    result.print_result()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """Run the personal assistant REPL until the user types 'q'."""
     print("Starting agent...")
 
     with AgentRuntime() as runtime:
         while True:
             prompt = input("You: ").strip()
-            if prompt.lower() == "q":
-                break  # Exit on 'q'
+            if prompt.lower() == EXIT_COMMAND:
+                break
             if not prompt:
-                continue  # Skip empty input
+                continue
+            run_turn(prompt, runtime)
 
-            # Run the agent with the user's prompt and get the result
-            result = runtime.run(assistant, prompt)
-            readable_result = result.output.get('result')
+    print("Agent shutting down...")
 
-            # Update the conversation memory
-            conversation_memory.add_user_message(prompt)
-            conversation_memory.add_assistant_message(readable_result)
-
-            # Print the agent's output
-            result.print_result()
 
 if __name__ == "__main__":
     main()
